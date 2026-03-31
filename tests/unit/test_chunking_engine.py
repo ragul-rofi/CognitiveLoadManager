@@ -6,6 +6,7 @@ from datetime import datetime
 from clm.core.chunking_engine import ChunkingEngine
 from clm.core.models import TaskNode, TaskTree, TaskChunk
 from clm.storage.sidecar_store import SidecarStore
+from clm.exceptions import ExpansionError
 
 
 @pytest.fixture
@@ -247,7 +248,7 @@ class TestExpand:
     
     def test_expand_raises_error_for_missing_task_in_sidecar(self, chunking_engine, sample_task_tree):
         """Test that expand raises error if task not in sidecar."""
-        with pytest.raises(ValueError, match="not found in sidecar store"):
+        with pytest.raises(ExpansionError, match="not found in sidecar store"):
             chunking_engine.expand("nonexistent-task", sample_task_tree)
     
     def test_expand_raises_error_for_missing_task_in_tree(self, chunking_engine, sample_task_tree, sidecar_store):
@@ -264,7 +265,7 @@ class TestExpand:
         )
         sidecar_store.store(chunk)
         
-        with pytest.raises(ValueError, match="not found in task tree"):
+        with pytest.raises(ExpansionError, match="not found in task tree"):
             chunking_engine.expand("orphan-task", sample_task_tree)
 
 

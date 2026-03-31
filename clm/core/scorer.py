@@ -1,7 +1,10 @@
 """CLM Scorer for computing cognitive load scores and zone classification."""
 
 from __future__ import annotations
+import logging
 from clm.core.models import Signals
+
+logger = logging.getLogger("clm.scorer")
 
 
 class CLMScorer:
@@ -44,6 +47,8 @@ class CLMScorer:
         # raw_score is in [0, 1], normalize to [0, 100]
         clm_score = raw_score * 100.0
         
+        logger.debug(f"Computed CLM score: {clm_score:.2f} (raw={raw_score:.3f})")
+        
         return clm_score
     
     def classify_zone(self, clm_score: float) -> str:
@@ -57,8 +62,11 @@ class CLMScorer:
             "Green" (0-40), "Amber" (40-70), or "Red" (70-100)
         """
         if clm_score <= self.green_max:
-            return "Green"
+            zone = "Green"
         elif clm_score <= self.amber_max:
-            return "Amber"
+            zone = "Amber"
         else:
-            return "Red"
+            zone = "Red"
+        
+        logger.debug(f"Classified zone: {zone} (score={clm_score:.2f})")
+        return zone

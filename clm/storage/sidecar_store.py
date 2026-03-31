@@ -1,11 +1,15 @@
 """SQLite-based storage backend for compressed task chunks."""
 
+import logging
 import sqlite3
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
 from clm.core.models import TaskChunk
+from clm.exceptions import StorageError
+
+logger = logging.getLogger("clm.sidecar_store")
 
 
 class SidecarStore:
@@ -23,9 +27,14 @@ class SidecarStore:
             connection_params: Connection parameters for storage backend
                              For SQLite: {"db_path": "path/to/db.sqlite"}
                              If not provided, uses in-memory database
+                             
+        Raises:
+            StorageError: If storage initialization fails
         """
         if storage_type != "sqlite":
-            raise ValueError(f"Only 'sqlite' storage type is supported, got '{storage_type}'")
+            error_msg = f"Only 'sqlite' storage type is supported, got '{storage_type}'"
+            logger.error(error_msg)
+            raise StorageError(error_msg)
         
         self.storage_type = storage_type
         self.connection_params = connection_params or {}
@@ -33,11 +42,19 @@ class SidecarStore:
         # Initialize SQLite connection
         db_path = self.connection_params.get("db_path", ":memory:")
         self.db_path = db_path
-        self.conn = sqlite3.connect(db_path, check_same_thread=False)
-        self.conn.row_factory = sqlite3.Row  # Enable column access by name
         
-        # Create schema
-        self._create_schema()
+        try:
+            self.conn = sqlite3.connect(db_path, check_same_thread=False)
+            self.conn.row_factory = sqlite3.Row  # Enable column access by name
+            logger.info(f"Initialized SQLite storage at {db_path}")
+            
+            # Create schema
+            self._create_schema()
+            
+        except Exception as e:
+            error_msg = f"Failed to initialize SQLite storage at {db_path}: {e}"
+            logger.error(error_msg)
+            raise StorageError(error_msg) from e
     
     def _create_schema(self) -> None:
         """Create SQLite schema with task_chunks table and indexes."""
@@ -84,30 +101,40 @@ class SidecarStore:
                        
         Returns:
             task_id of stored chunk
+            
+        Raises:
+            StorageError: If storage operation fails
         """
-        cursor = self.conn.cursor()
-        
-        # Convert datetime to ISO format string for storage
-        compressed_at_str = task_chunk.compressed_at.isoformat()
-        
-        # Use INSERT OR REPLACE to handle updates
-        cursor.execute("""
-            INSERT OR REPLACE INTO task_chunks 
-            (task_id, parent_id, summary, full_detail, clm_score_at_compression, 
-             compressed_at, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (
-            task_chunk.task_id,
-            task_chunk.parent_id,
-            task_chunk.summary,
-            task_chunk.full_detail,
-            task_chunk.clm_score_at_compression,
-            compressed_at_str,
-            task_chunk.status
-        ))
-        
-        self.conn.commit()
-        return task_chunk.task_id
+        try:
+            cursor = self.conn.cursor()
+            
+            # Convert datetime to ISO format string for storage
+            compressed_at_str = task_chunk.compressed_at.isoformat()
+            
+            # Use INSERT OR REPLACE to handle updates
+            cursor.execute("""
+                INSERT OR REPLACE INTO task_chunks 
+                (task_id, parent_id, summary, full_detail, clm_score_at_compression, 
+                 compressed_at, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (
+                task_chunk.task_id,
+                task_chunk.parent_id,
+                task_chunk.summary,
+                task_chunk.full_detail,
+                task_chunk.clm_score_at_compression,
+                compressed_at_str,
+                task_chunk.status
+            ))
+            
+            self.conn.commit()
+            logger.debug(f"Stored task chunk {task_chunk.task_id} with status={task_chunk.status}")
+            return task_chunk.task_id
+            
+        except Exception as e:
+            error_msg = f"Failed to store task chunk {task_chunk.task_id}: {e}"
+            logger.error(error_msg)
+            raise StorageError(error_msg) from e
     
     def get(self, task_id: str) -> Optional[TaskChunk]:
         """
@@ -118,29 +145,41 @@ class SidecarStore:
             
         Returns:
             TaskChunk if found, None otherwise
+            
+        Raises:
+            StorageError: If retrieval operation fails
         """
-        cursor = self.conn.cursor()
-        cursor.execute("""
-            SELECT task_id, parent_id, summary, full_detail, 
-                   clm_score_at_compression, compressed_at, status
-            FROM task_chunks
-            WHERE task_id = ?
-        """, (task_id,))
-        
-        row = cursor.fetchone()
-        if row is None:
-            return None
-        
-        # Convert row to TaskChunk
-        return TaskChunk(
-            task_id=row["task_id"],
-            parent_id=row["parent_id"],
-            summary=row["summary"],
-            full_detail=row["full_detail"],
-            clm_score_at_compression=row["clm_score_at_compression"],
-            compressed_at=datetime.fromisoformat(row["compressed_at"]),
-            status=row["status"]
-        )
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                SELECT task_id, parent_id, summary, full_detail, 
+                       clm_score_at_compression, compressed_at, status
+                FROM task_chunks
+                WHERE task_id = ?
+            """, (task_id,))
+            
+            row = cursor.fetchone()
+            if row is None:
+                logger.debug(f"Task chunk {task_id} not found")
+                return None
+            
+            # Convert row to TaskChunk
+            task_chunk = TaskChunk(
+                task_id=row["task_id"],
+                parent_id=row["parent_id"],
+                summary=row["summary"],
+                full_detail=row["full_detail"],
+                clm_score_at_compression=row["clm_score_at_compression"],
+                compressed_at=datetime.fromisoformat(row["compressed_at"]),
+                status=row["status"]
+            )
+            logger.debug(f"Retrieved task chunk {task_id}")
+            return task_chunk
+            
+        except Exception as e:
+            error_msg = f"Failed to retrieve task chunk {task_id}: {e}"
+            logger.error(error_msg)
+            raise StorageError(error_msg) from e
     
     def list_children(self, parent_id: str) -> list[TaskChunk]:
         """

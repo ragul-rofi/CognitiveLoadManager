@@ -2,6 +2,7 @@
 
 import pytest
 from clm.core.config import CLMConfig
+from clm.exceptions import ConfigurationError
 
 
 class TestCLMConfig:
@@ -69,14 +70,14 @@ class TestCLMConfig:
         """Test validation fails when weights don't sum to 1.0."""
         config = CLMConfig(weights=[0.30, 0.30, 0.30, 0.30])  # Sum = 1.2
         
-        with pytest.raises(ValueError, match="Weights must sum to 1.0"):
+        with pytest.raises(ConfigurationError, match="Weights must sum to 1.0"):
             config.validate()
     
     def test_validate_weights_too_low(self):
         """Test validation fails when weights sum is too low."""
         config = CLMConfig(weights=[0.20, 0.20, 0.20, 0.20])  # Sum = 0.8
         
-        with pytest.raises(ValueError, match="Weights must sum to 1.0"):
+        with pytest.raises(ConfigurationError, match="Weights must sum to 1.0"):
             config.validate()
     
     def test_validate_zone_boundaries_valid(self):
@@ -88,33 +89,33 @@ class TestCLMConfig:
         """Test validation fails when green_max >= amber_max."""
         config = CLMConfig(green_max=70.0, amber_max=40.0)
         
-        with pytest.raises(ValueError, match="Zone boundaries must satisfy"):
+        with pytest.raises(ConfigurationError, match="Zone boundaries must satisfy"):
             config.validate()
     
     def test_validate_zone_boundaries_equal(self):
         """Test validation fails when green_max == amber_max."""
         config = CLMConfig(green_max=50.0, amber_max=50.0)
         
-        with pytest.raises(ValueError, match="Zone boundaries must satisfy"):
+        with pytest.raises(ConfigurationError, match="Zone boundaries must satisfy"):
             config.validate()
     
     def test_validate_zone_boundaries_at_zero(self):
         """Test validation fails when green_max is at 0."""
         config = CLMConfig(green_max=0.0, amber_max=70.0)
         
-        with pytest.raises(ValueError, match="Zone boundaries must satisfy"):
+        with pytest.raises(ConfigurationError, match="Zone boundaries must satisfy"):
             config.validate()
     
     def test_validate_zone_boundaries_at_hundred(self):
         """Test validation fails when amber_max is at 100."""
         config = CLMConfig(green_max=40.0, amber_max=100.0)
         
-        with pytest.raises(ValueError, match="Zone boundaries must satisfy"):
+        with pytest.raises(ConfigurationError, match="Zone boundaries must satisfy"):
             config.validate()
     
     def test_validate_zone_boundaries_above_hundred(self):
         """Test validation fails when amber_max is above 100."""
         config = CLMConfig(green_max=40.0, amber_max=110.0)
         
-        with pytest.raises(ValueError, match="Zone boundaries must satisfy"):
+        with pytest.raises(ConfigurationError, match="Zone boundaries must satisfy"):
             config.validate()

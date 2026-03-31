@@ -11,6 +11,14 @@ __version__ = "1.0.0"
 from clm.cognitive_load_manager import CognitiveLoadManager
 from clm.core.config import CLMConfig
 from clm.core.models import TaskState, TaskTree, TaskNode, InterventionResponse
+from clm.exceptions import (
+    CLMError,
+    ConfigurationError,
+    StorageError,
+    EmbeddingError,
+    ValidationError,
+    ExpansionError,
+)
 
 __all__ = [
     "CognitiveLoadManager",
@@ -19,4 +27,10 @@ __all__ = [
     "TaskTree",
     "TaskNode",
     "InterventionResponse",
+    "CLMError",
+    "ConfigurationError",
+    "StorageError",
+    "EmbeddingError",
+    "ValidationError",
+    "ExpansionError",
 ]

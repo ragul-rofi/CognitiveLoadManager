@@ -1,10 +1,14 @@
 """Chunking engine for task compression, anchoring, and expansion."""
 
+import logging
 from datetime import datetime
 from typing import Optional, Callable
 
 from clm.core.models import TaskNode, TaskTree, TaskChunk
 from clm.storage.sidecar_store import SidecarStore
+from clm.exceptions import ExpansionError, StorageError
+
+logger = logging.getLogger("clm.chunking_engine")
 
 
 class ChunkingEngine:
@@ -37,37 +41,49 @@ class ChunkingEngine:
             
         Returns:
             Summary node (≤200 tokens) with reference to sidecar storage
+            
+        Raises:
+            StorageError: If sidecar storage fails
         """
-        # Generate summary (≤200 tokens)
-        summary = self._generate_summary(task_node.description)
+        logger.debug(f"Compressing task {task_node.task_id} with CLM score {clm_score}")
         
-        # Create task chunk for storage
-        task_chunk = TaskChunk(
-            task_id=task_node.task_id,
-            parent_id=task_node.parent_id,
-            summary=summary,
-            full_detail=task_node.description,
-            clm_score_at_compression=clm_score,
-            compressed_at=datetime.now(),
-            status="compressed"
-        )
-        
-        # Store in sidecar
-        self.sidecar_store.store(task_chunk)
-        
-        # Create summary node with sidecar reference
-        summary_description = f"{summary}\n[Full detail in sidecar: {task_node.task_id}]"
-        
-        summary_node = TaskNode(
-            task_id=task_node.task_id,
-            parent_id=task_node.parent_id,
-            description=summary_description,
-            status="compressed",
-            depth=task_node.depth,
-            children=task_node.children  # Preserve tree structure
-        )
-        
-        return summary_node
+        try:
+            # Generate summary (≤200 tokens)
+            summary = self._generate_summary(task_node.description)
+            logger.debug(f"Generated summary for task {task_node.task_id}: {len(summary.split())} tokens")
+            
+            # Create task chunk for storage
+            task_chunk = TaskChunk(
+                task_id=task_node.task_id,
+                parent_id=task_node.parent_id,
+                summary=summary,
+                full_detail=task_node.description,
+                clm_score_at_compression=clm_score,
+                compressed_at=datetime.now(),
+                status="compressed"
+            )
+            
+            # Store in sidecar
+            self.sidecar_store.store(task_chunk)
+            logger.info(f"Compressed task {task_node.task_id} and stored in sidecar")
+            
+            # Create summary node with sidecar reference
+            summary_description = f"{summary}\n[Full detail in sidecar: {task_node.task_id}]"
+            
+            summary_node = TaskNode(
+                task_id=task_node.task_id,
+                parent_id=task_node.parent_id,
+                description=summary_description,
+                status="compressed",
+                depth=task_node.depth,
+                children=task_node.children  # Preserve tree structure
+            )
+            
+            return summary_node
+            
+        except Exception as e:
+            logger.error(f"Failed to compress task {task_node.task_id}: {e}")
+            raise StorageError(f"Failed to compress task {task_node.task_id}: {e}") from e
     
     def _generate_summary(self, full_detail: str, max_tokens: int = 200) -> str:
         """
@@ -149,31 +165,47 @@ class ChunkingEngine:
             Updated task tree with expanded node
             
         Raises:
-            ValueError: If task_id not found in sidecar or task tree
+            ExpansionError: If task_id not found in sidecar or task tree
         """
-        # Retrieve full detail from sidecar
-        full_detail = self.sidecar_store.expand(task_id)
+        logger.debug(f"Expanding task {task_id}")
         
-        if full_detail is None:
-            raise ValueError(f"Task {task_id} not found in sidecar store")
-        
-        # Find compressed node in tree
-        node = task_tree.find_node(task_id)
-        
-        if node is None:
-            raise ValueError(f"Task {task_id} not found in task tree")
-        
-        # Restore full detail
-        node.description = full_detail
-        node.status = "active"
-        
-        # Update sidecar status
-        task_chunk = self.sidecar_store.get(task_id)
-        if task_chunk:
-            task_chunk.status = "expanded"
-            self.sidecar_store.store(task_chunk)
-        
-        return task_tree
+        try:
+            # Retrieve full detail from sidecar
+            full_detail = self.sidecar_store.expand(task_id)
+            
+            if full_detail is None:
+                error_msg = f"Task {task_id} not found in sidecar store"
+                logger.error(error_msg)
+                raise ExpansionError(error_msg)
+            
+            # Find compressed node in tree
+            node = task_tree.find_node(task_id)
+            
+            if node is None:
+                error_msg = f"Task {task_id} not found in task tree"
+                logger.error(error_msg)
+                raise ExpansionError(error_msg)
+            
+            # Restore full detail
+            node.description = full_detail
+            node.status = "active"
+            logger.info(f"Expanded task {task_id} from sidecar")
+            
+            # Update sidecar status
+            task_chunk = self.sidecar_store.get(task_id)
+            if task_chunk:
+                task_chunk.status = "expanded"
+                self.sidecar_store.store(task_chunk)
+                logger.debug(f"Updated sidecar status for task {task_id} to 'expanded'")
+            
+            return task_tree
+            
+        except ExpansionError:
+            raise
+        except Exception as e:
+            error_msg = f"Failed to expand task {task_id}: {e}"
+            logger.error(error_msg)
+            raise ExpansionError(error_msg) from e
     
     def auto_expand(self, task_tree: TaskTree, clm_score: float) -> TaskTree:
         """
@@ -188,32 +220,43 @@ class ChunkingEngine:
         """
         # Only expand if score drops below 40
         if clm_score >= 40:
+            logger.debug(f"Auto-expand skipped: CLM score {clm_score} >= 40")
             return task_tree
         
-        # Find all compressed tasks in tree
-        compressed_tasks = [
-            node for node in task_tree.traverse_dfs()
-            if node.status == "compressed"
-        ]
+        logger.debug(f"Auto-expand triggered: CLM score {clm_score} < 40")
         
-        if not compressed_tasks:
-            return task_tree  # Nothing to expand
-        
-        # Get compression timestamps from sidecar
-        task_chunks = []
-        for node in compressed_tasks:
-            chunk = self.sidecar_store.get(node.task_id)
-            if chunk:
-                task_chunks.append(chunk)
-        
-        if not task_chunks:
+        try:
+            # Find all compressed tasks in tree
+            compressed_tasks = [
+                node for node in task_tree.traverse_dfs()
+                if node.status == "compressed"
+            ]
+            
+            if not compressed_tasks:
+                logger.debug("No compressed tasks to expand")
+                return task_tree  # Nothing to expand
+            
+            # Get compression timestamps from sidecar
+            task_chunks = []
+            for node in compressed_tasks:
+                chunk = self.sidecar_store.get(node.task_id)
+                if chunk:
+                    task_chunks.append(chunk)
+            
+            if not task_chunks:
+                logger.warning("Compressed tasks found in tree but not in sidecar")
+                return task_tree
+            
+            # Sort by compression time (most recent first)
+            task_chunks.sort(key=lambda x: x.compressed_at, reverse=True)
+            
+            # Expand most recent
+            most_recent = task_chunks[0]
+            logger.info(f"Auto-expanding most recent compressed task: {most_recent.task_id}")
+            task_tree = self.expand(most_recent.task_id, task_tree)
+            
             return task_tree
-        
-        # Sort by compression time (most recent first)
-        task_chunks.sort(key=lambda x: x.compressed_at, reverse=True)
-        
-        # Expand most recent
-        most_recent = task_chunks[0]
-        task_tree = self.expand(most_recent.task_id, task_tree)
-        
-        return task_tree
+            
+        except Exception as e:
+            logger.warning(f"Auto-expand failed: {e}. Continuing with compressed tree.")
+            return task_tree  # Graceful degradation: return unchanged tree

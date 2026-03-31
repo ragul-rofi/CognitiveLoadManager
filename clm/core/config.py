@@ -1,6 +1,11 @@
 """Configuration for Cognitive Load Manager."""
 
+import logging
 from dataclasses import dataclass, field
+
+from clm.exceptions import ConfigurationError
+
+logger = logging.getLogger("clm.config")
 
 
 @dataclass
@@ -33,8 +38,31 @@ class CLMConfig:
     ])
     
     def validate(self) -> None:
-        """Validate configuration constraints."""
-        if abs(sum(self.weights) - 1.0) > 0.01:
-            raise ValueError(f"Weights must sum to 1.0, got {sum(self.weights)}")
+        """
+        Validate configuration constraints.
+        
+        Raises:
+            ConfigurationError: If validation fails
+        """
+        logger.debug(f"Validating configuration: weights={self.weights}, green_max={self.green_max}, amber_max={self.amber_max}")
+        
+        # Validate weights sum to 1.0
+        weights_sum = sum(self.weights)
+        if abs(weights_sum - 1.0) > 0.01:
+            error_msg = f"Weights must sum to 1.0 (±0.01), got {weights_sum}"
+            logger.error(error_msg)
+            raise ConfigurationError(error_msg)
+        
+        # Validate zone boundaries
         if not (0 < self.green_max < self.amber_max < 100):
-            raise ValueError("Zone boundaries must satisfy: 0 < green_max < amber_max < 100")
+            error_msg = f"Zone boundaries must satisfy: 0 < green_max < amber_max < 100, got green_max={self.green_max}, amber_max={self.amber_max}"
+            logger.error(error_msg)
+            raise ConfigurationError(error_msg)
+        
+        # Validate storage type
+        if self.storage_type not in ["sqlite", "redis"]:
+            error_msg = f"Invalid storage_type: {self.storage_type}. Must be 'sqlite' or 'redis'"
+            logger.error(error_msg)
+            raise ConfigurationError(error_msg)
+        
+        logger.info("Configuration validated successfully")

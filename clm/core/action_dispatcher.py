@@ -1,7 +1,10 @@
 """Action dispatcher for cognitive load interventions."""
 
+import logging
 from clm.core.models import TaskState, InterventionResponse, TaskNode, TaskTree
 from clm.core.chunking_engine import ChunkingEngine
+
+logger = logging.getLogger("clm.action_dispatcher")
 
 
 class ActionDispatcher:
@@ -39,6 +42,8 @@ class ActionDispatcher:
         Returns:
             InterventionResponse with action, context, and clarification fields
         """
+        logger.info(f"Dispatching intervention for zone={zone}, score={clm_score:.2f}")
+        
         if zone == "Green":
             return self._handle_green(task_state, clm_score)
         elif zone == "Amber":
@@ -57,6 +62,7 @@ class ActionDispatcher:
         Returns:
             InterventionResponse with action="pass"
         """
+        logger.debug("Green zone: No intervention needed")
         return InterventionResponse(
             action="pass",
             clm_score=clm_score,
@@ -74,24 +80,32 @@ class ActionDispatcher:
         Returns:
             InterventionResponse with action="patch" and context_patch
         """
+        logger.info("Amber zone: Compressing deepest branches")
+        
         # Find deepest branches
         deepest_branches = self._find_deepest_branches(task_state.task_tree)
+        logger.debug(f"Found {len(deepest_branches)} deepest branches to compress")
         
         compressed_ids = []
         
         # Compress each deepest branch
         for node in deepest_branches:
-            summary_node = self.chunking_engine.compress(node, clm_score)
-            
-            # Update node in tree
-            tree_node = task_state.task_tree.find_node(node.task_id)
-            if tree_node:
-                tree_node.description = summary_node.description
-                tree_node.status = "compressed"
-                compressed_ids.append(node.task_id)
+            try:
+                summary_node = self.chunking_engine.compress(node, clm_score)
+                
+                # Update node in tree
+                tree_node = task_state.task_tree.find_node(node.task_id)
+                if tree_node:
+                    tree_node.description = summary_node.description
+                    tree_node.status = "compressed"
+                    compressed_ids.append(node.task_id)
+            except Exception as e:
+                logger.warning(f"Failed to compress task {node.task_id}: {e}")
         
         # Generate context patch (serialized task tree)
         context_patch = self._serialize_task_tree(task_state.task_tree)
+        
+        logger.info(f"Amber zone intervention complete: compressed {len(compressed_ids)} tasks")
         
         return InterventionResponse(
             action="patch",
@@ -112,20 +126,26 @@ class ActionDispatcher:
         Returns:
             InterventionResponse with action="interrupt", context with anchor, and clarification
         """
+        logger.warning("Red zone: Full compression and clarification interrupt")
+        
         compressed_ids = []
         
         # Compress all active tasks except root
         for node in task_state.task_tree.traverse_dfs():
             if node.parent_id is not None and node.status == "active":
-                summary_node = self.chunking_engine.compress(node, clm_score)
-                
-                # Update node in tree
-                node.description = summary_node.description
-                node.status = "compressed"
-                compressed_ids.append(node.task_id)
+                try:
+                    summary_node = self.chunking_engine.compress(node, clm_score)
+                    
+                    # Update node in tree
+                    node.description = summary_node.description
+                    node.status = "compressed"
+                    compressed_ids.append(node.task_id)
+                except Exception as e:
+                    logger.warning(f"Failed to compress task {node.task_id}: {e}")
         
         # Generate anchor
         anchor = self.chunking_engine.anchor(task_state.task_tree.root_intent)
+        logger.debug(f"Generated anchor: {anchor[:50]}...")
         
         # Generate context with anchor
         task_tree_serialized = self._serialize_task_tree(task_state.task_tree)
@@ -136,6 +156,8 @@ class ActionDispatcher:
             "Cognitive load is very high. Please clarify: "
             "What is the most critical sub-task to focus on right now?"
         )
+        
+        logger.critical(f"Red zone intervention complete: compressed {len(compressed_ids)} tasks, requesting clarification")
         
         return InterventionResponse(
             action="interrupt",

@@ -1,5 +1,6 @@
 """Cognitive Load Manager facade - main entry point for agent loop integration."""
 
+import logging
 from clm.core.config import CLMConfig
 from clm.core.models import TaskState, InterventionResponse
 from clm.core.signal_collector import SignalCollector
@@ -7,6 +8,9 @@ from clm.core.scorer import CLMScorer
 from clm.core.chunking_engine import ChunkingEngine
 from clm.core.action_dispatcher import ActionDispatcher
 from clm.storage.sidecar_store import SidecarStore
+from clm.exceptions import CLMError, ConfigurationError, StorageError, EmbeddingError, ValidationError
+
+logger = logging.getLogger("clm")
 
 
 class CognitiveLoadManager:
@@ -40,46 +44,82 @@ class CognitiveLoadManager:
         
         Args:
             config: Configuration object with thresholds, weights, storage settings
+            
+        Raises:
+            ConfigurationError: If configuration validation fails
+            StorageError: If storage initialization fails
         """
+        logger.info("Initializing Cognitive Load Manager")
+        
         # Validate configuration
-        config.validate()
+        try:
+            config.validate()
+        except Exception as e:
+            logger.error(f"Configuration validation failed: {e}")
+            raise
         
         self.config = config
         
         # Initialize storage backend
-        self.sidecar_store = SidecarStore(
-            storage_type=config.storage_type,
-            connection_params=config.storage_params
-        )
+        try:
+            self.sidecar_store = SidecarStore(
+                storage_type=config.storage_type,
+                connection_params=config.storage_params
+            )
+        except Exception as e:
+            logger.error(f"Failed to initialize storage: {e}")
+            raise
         
         # Initialize signal collector
-        self.signal_collector = SignalCollector(
-            branching_threshold=config.branching_threshold,
-            repetition_threshold=config.repetition_threshold,
-            uncertainty_threshold=config.uncertainty_threshold,
-            hedged_tokens=config.hedged_tokens
-        )
+        try:
+            self.signal_collector = SignalCollector(
+                branching_threshold=config.branching_threshold,
+                repetition_threshold=config.repetition_threshold,
+                uncertainty_threshold=config.uncertainty_threshold,
+                hedged_tokens=config.hedged_tokens
+            )
+            logger.debug("Signal collector initialized")
+        except Exception as e:
+            logger.error(f"Failed to initialize signal collector: {e}")
+            raise
         
         # Initialize scorer
-        self.scorer = CLMScorer(
-            weights=config.weights,
-            green_max=config.green_max,
-            amber_max=config.amber_max
-        )
+        try:
+            self.scorer = CLMScorer(
+                weights=config.weights,
+                green_max=config.green_max,
+                amber_max=config.amber_max
+            )
+            logger.debug("CLM scorer initialized")
+        except Exception as e:
+            logger.error(f"Failed to initialize scorer: {e}")
+            raise
         
         # Initialize chunking engine
-        self.chunking_engine = ChunkingEngine(
-            sidecar_store=self.sidecar_store
-        )
+        try:
+            self.chunking_engine = ChunkingEngine(
+                sidecar_store=self.sidecar_store
+            )
+            logger.debug("Chunking engine initialized")
+        except Exception as e:
+            logger.error(f"Failed to initialize chunking engine: {e}")
+            raise
         
         # Initialize action dispatcher
-        self.action_dispatcher = ActionDispatcher(
-            chunking_engine=self.chunking_engine
-        )
+        try:
+            self.action_dispatcher = ActionDispatcher(
+                chunking_engine=self.chunking_engine
+            )
+            logger.debug("Action dispatcher initialized")
+        except Exception as e:
+            logger.error(f"Failed to initialize action dispatcher: {e}")
+            raise
         
         # State tracking
         self._current_score: float = 0.0
         self._current_zone: str = "Green"
+        
+        logger.info("Cognitive Load Manager initialized successfully")
     
     def observe(self, llm_output: str, task_state: TaskState) -> InterventionResponse:
         """
@@ -98,31 +138,68 @@ class CognitiveLoadManager:
             
         Returns:
             InterventionResponse with action, context, and clarification fields
+            
+        Note:
+            If component failures occur, CLM will attempt graceful degradation
+            and return a "pass" action to avoid disrupting the agent loop.
         """
-        # Step 1: Extract signals
-        signals = self.signal_collector.extract_signals(llm_output, task_state)
+        logger.info("CLM observe() called")
         
-        # Step 2: Compute score
-        clm_score = self.scorer.compute_score(signals)
-        
-        # Step 3: Classify zone
-        zone = self.scorer.classify_zone(clm_score)
-        
-        # Step 4: Dispatch intervention
-        response = self.action_dispatcher.dispatch(clm_score, zone, task_state)
-        
-        # Step 5: Auto-expand if score drops below 40
-        if clm_score < 40:
-            task_state.task_tree = self.chunking_engine.auto_expand(
-                task_state.task_tree, 
-                clm_score
+        try:
+            # Step 1: Extract signals
+            try:
+                signals = self.signal_collector.extract_signals(llm_output, task_state)
+            except ValidationError as e:
+                logger.error(f"Signal extraction failed: {e}. Returning pass action.")
+                return InterventionResponse(
+                    action="pass",
+                    clm_score=0.0,
+                    zone="Green"
+                )
+            
+            # Step 2: Compute score
+            clm_score = self.scorer.compute_score(signals)
+            
+            # Step 3: Classify zone
+            zone = self.scorer.classify_zone(clm_score)
+            
+            # Step 4: Dispatch intervention
+            try:
+                response = self.action_dispatcher.dispatch(clm_score, zone, task_state)
+            except StorageError as e:
+                logger.warning(f"Storage error during intervention: {e}. Attempting graceful degradation.")
+                # Graceful degradation: return pass action if storage fails
+                response = InterventionResponse(
+                    action="pass",
+                    clm_score=clm_score,
+                    zone=zone
+                )
+            
+            # Step 5: Auto-expand if score drops below 40
+            if clm_score < 40:
+                try:
+                    task_state.task_tree = self.chunking_engine.auto_expand(
+                        task_state.task_tree, 
+                        clm_score
+                    )
+                except Exception as e:
+                    logger.warning(f"Auto-expand failed: {e}. Continuing without expansion.")
+            
+            # Update state tracking
+            self._current_score = clm_score
+            self._current_zone = zone
+            
+            logger.info(f"CLM observe() complete: action={response.action}, zone={zone}, score={clm_score:.2f}")
+            return response
+            
+        except Exception as e:
+            logger.error(f"Unexpected error in observe(): {e}. Returning pass action to avoid disrupting agent loop.")
+            # Graceful degradation: return pass action on any unexpected error
+            return InterventionResponse(
+                action="pass",
+                clm_score=self._current_score,
+                zone=self._current_zone
             )
-        
-        # Update state tracking
-        self._current_score = clm_score
-        self._current_zone = zone
-        
-        return response
     
     def get_score(self) -> float:
         """

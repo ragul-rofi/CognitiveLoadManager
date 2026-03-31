@@ -1,7 +1,11 @@
 """Signal extraction for cognitive load monitoring."""
 
+import logging
 from clm.core.models import Signals, TaskState
 from clm.utils.embeddings import embed, cosine_similarity
+from clm.exceptions import EmbeddingError, ValidationError
+
+logger = logging.getLogger("clm.signal_collector")
 
 
 class SignalCollector:
@@ -51,18 +55,31 @@ class SignalCollector:
             
         Returns:
             Signals object with normalized values (0-1) for all four signals
+            
+        Raises:
+            ValidationError: If task_state is invalid
         """
-        branching_factor = self._compute_branching_factor(task_state)
-        repetition_rate = self._compute_repetition_rate(task_state.reasoning_history)
-        uncertainty_density = self._compute_uncertainty_density(llm_output)
-        goal_distance = self._compute_goal_distance(task_state)
+        logger.debug("Extracting cognitive load signals")
         
-        return Signals(
-            branching_factor=branching_factor,
-            repetition_rate=repetition_rate,
-            uncertainty_density=uncertainty_density,
-            goal_distance=goal_distance
-        )
+        try:
+            branching_factor = self._compute_branching_factor(task_state)
+            repetition_rate = self._compute_repetition_rate(task_state.reasoning_history)
+            uncertainty_density = self._compute_uncertainty_density(llm_output)
+            goal_distance = self._compute_goal_distance(task_state)
+            
+            signals = Signals(
+                branching_factor=branching_factor,
+                repetition_rate=repetition_rate,
+                uncertainty_density=uncertainty_density,
+                goal_distance=goal_distance
+            )
+            
+            logger.debug(f"Extracted signals: branching={branching_factor:.3f}, repetition={repetition_rate:.3f}, uncertainty={uncertainty_density:.3f}, goal_distance={goal_distance:.3f}")
+            return signals
+            
+        except Exception as e:
+            logger.error(f"Failed to extract signals: {e}")
+            raise ValidationError(f"Failed to extract signals: {e}") from e
     
     def _compute_branching_factor(self, task_state: TaskState) -> float:
         """
@@ -98,27 +115,33 @@ class SignalCollector:
             Maximum cosine similarity in [0, 1], or 0.0 if insufficient history
         """
         if len(reasoning_history) < 2:
+            logger.debug("Insufficient reasoning history for repetition rate")
             return 0.0
         
-        # Take last 3 steps
-        recent_steps = reasoning_history[-3:]
-        
-        # Generate embeddings for each step
-        embeddings = [embed(step) for step in recent_steps]
-        
-        # Compute pairwise similarities between consecutive steps
-        similarities = []
-        for i in range(len(embeddings) - 1):
-            sim = cosine_similarity(embeddings[i], embeddings[i + 1])
-            similarities.append(sim)
-        
-        # Return maximum similarity (highest repetition)
-        if similarities:
-            max_sim = max(similarities)
-            # Cosine similarity can be negative, clamp to [0, 1]
-            return max(0.0, min(1.0, max_sim))
-        
-        return 0.0
+        try:
+            # Take last 3 steps
+            recent_steps = reasoning_history[-3:]
+            
+            # Generate embeddings for each step
+            embeddings = [embed(step) for step in recent_steps]
+            
+            # Compute pairwise similarities between consecutive steps
+            similarities = []
+            for i in range(len(embeddings) - 1):
+                sim = cosine_similarity(embeddings[i], embeddings[i + 1])
+                similarities.append(sim)
+            
+            # Return maximum similarity (highest repetition)
+            if similarities:
+                max_sim = max(similarities)
+                # Cosine similarity can be negative, clamp to [0, 1]
+                return max(0.0, min(1.0, max_sim))
+            
+            return 0.0
+            
+        except Exception as e:
+            logger.warning(f"Failed to compute repetition rate, using default 0.0: {e}")
+            return 0.0  # Graceful degradation
     
     def _compute_uncertainty_density(self, llm_output: str) -> float:
         """
@@ -166,30 +189,36 @@ class SignalCollector:
         Returns:
             Goal distance in [0, 1], where 0 = aligned, 1 = completely diverged
         """
-        # Find current task node
-        current_task = task_state.task_tree.find_node(task_state.current_task_id)
-        
-        if not current_task:
-            return 0.0
-        
-        # Get or compute root intent embedding
-        if task_state.task_tree.root_intent_embedding is None:
-            task_state.task_tree.root_intent_embedding = embed(
-                task_state.task_tree.root_intent
+        try:
+            # Find current task node
+            current_task = task_state.task_tree.find_node(task_state.current_task_id)
+            
+            if not current_task:
+                logger.warning(f"Current task {task_state.current_task_id} not found in tree")
+                return 0.0
+            
+            # Get or compute root intent embedding
+            if task_state.task_tree.root_intent_embedding is None:
+                task_state.task_tree.root_intent_embedding = embed(
+                    task_state.task_tree.root_intent
+                )
+            
+            # Compute current task embedding
+            current_embedding = embed(current_task.description)
+            
+            # Compute similarity
+            goal_similarity = cosine_similarity(
+                current_embedding,
+                task_state.task_tree.root_intent_embedding
             )
-        
-        # Compute current task embedding
-        current_embedding = embed(current_task.description)
-        
-        # Compute similarity
-        goal_similarity = cosine_similarity(
-            current_embedding,
-            task_state.task_tree.root_intent_embedding
-        )
-        
-        # Convert similarity to distance (1 - similarity)
-        # Clamp to [0, 1] range
-        goal_distance = 1.0 - goal_similarity
-        goal_distance = max(0.0, min(1.0, goal_distance))
-        
-        return goal_distance
+            
+            # Convert similarity to distance (1 - similarity)
+            # Clamp to [0, 1] range
+            goal_distance = 1.0 - goal_similarity
+            goal_distance = max(0.0, min(1.0, goal_distance))
+            
+            return goal_distance
+            
+        except Exception as e:
+            logger.warning(f"Failed to compute goal distance, using default 0.0: {e}")
+            return 0.0  # Graceful degradation
