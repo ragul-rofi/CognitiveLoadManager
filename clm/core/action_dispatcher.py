@@ -30,11 +30,15 @@ class ActionDispatcher:
     
     def dispatch(self, clm_score: float, zone: str, task_state: TaskState) -> InterventionResponse:
         """
-        Determine intervention action based on zone.
+        Determine intervention action based on zone with escalation and abort logic.
         
         Green Zone (0-40): Return "pass" with no intervention
         Amber Zone (40-70): Compress deepest branches, return "patch" with context
         Red Zone (70-100): Full compression + anchor + clarification interrupt
+        
+        Escalation Rules:
+        - 3 consecutive Amber → force Red zone
+        - 5 consecutive Red → emit abort action
         
         Args:
             clm_score: Current cognitive load score (0-100)
@@ -42,16 +46,44 @@ class ActionDispatcher:
             task_state: Current task state with task tree
             
         Returns:
-            InterventionResponse with action, context, and clarification fields
+            InterventionResponse with action, context, clarification, and counter metadata
         """
         logger.info(f"Dispatching intervention for zone={zone}, score={clm_score:.2f}")
         
+        # Subtask 3.1: Check for Amber escalation
+        if zone == "Amber" and self.amber_counter >= 2:
+            logger.warning(f"Amber escalation: {self.amber_counter + 1} consecutive Amber triggers, forcing Red zone")
+            zone = "Red"
+        
+        # Subtask 3.2: Check for Red abort
+        if zone == "Red" and self.red_counter >= 4:
+            logger.critical(f"Abort condition: {self.red_counter + 1} consecutive Red triggers")
+            return self._handle_abort(task_state, clm_score)
+        
+        # Subtask 3.3: Update counters based on zone
+        if zone == "Amber":
+            self.amber_counter += 1
+            self.red_counter = 0
+        elif zone == "Red":
+            self.red_counter += 1
+            self.amber_counter = 0
+        else:  # Green
+            self.amber_counter = 0
+            self.red_counter = 0
+        
+        # Route to zone handler
         if zone == "Green":
-            return self._handle_green(task_state, clm_score)
+            response = self._handle_green(task_state, clm_score)
         elif zone == "Amber":
-            return self._handle_amber(task_state, clm_score)
+            response = self._handle_amber(task_state, clm_score)
         else:  # Red zone
-            return self._handle_red(task_state, clm_score)
+            response = self._handle_red(task_state, clm_score)
+        
+        # Subtask 3.4: Inject counter metadata into InterventionResponse
+        response.amber_counter = self.amber_counter
+        response.red_counter = self.red_counter
+        
+        return response
     
     def _handle_green(self, task_state: TaskState, clm_score: float) -> InterventionResponse:
         """
@@ -168,6 +200,36 @@ class ActionDispatcher:
             clm_score=clm_score,
             zone="Red",
             compressed_tasks=compressed_ids
+        )
+    
+    def _handle_abort(self, task_state: TaskState, clm_score: float) -> InterventionResponse:
+        """
+        Terminal intervention when Red zone persists after multiple attempts.
+        
+        Args:
+            task_state: Current task state
+            clm_score: Current CLM score
+            
+        Returns:
+            InterventionResponse with action="abort" and guidance clarification
+        """
+        logger.critical("Abort action: Cognitive load cannot be resolved through intervention")
+        
+        # Increment red_counter one final time
+        self.red_counter += 1
+        
+        clarification = (
+            "Cognitive load remains critically high after multiple interventions. "
+            "Consider simplifying the task or breaking it into smaller independent goals."
+        )
+        
+        return InterventionResponse(
+            action="abort",
+            clarification=clarification,
+            clm_score=clm_score,
+            zone="Red",
+            amber_counter=self.amber_counter,
+            red_counter=self.red_counter
         )
     
     def _find_deepest_branches(self, task_tree: TaskTree) -> list[TaskNode]:
