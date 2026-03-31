@@ -25,6 +25,8 @@ class ActionDispatcher:
             chunking_engine: ChunkingEngine instance for task compression and anchoring
         """
         self.chunking_engine = chunking_engine
+        self.amber_counter: int = 0
+        self.red_counter: int = 0
     
     def dispatch(self, clm_score: float, zone: str, task_state: TaskState) -> InterventionResponse:
         """
