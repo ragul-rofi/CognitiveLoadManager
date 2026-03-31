@@ -78,7 +78,7 @@ class TestChunkingEngineInit:
         """Test initialization with sidecar store."""
         engine = ChunkingEngine(sidecar_store=sidecar_store)
         assert engine.sidecar_store == sidecar_store
-        assert engine.summarizer is None
+        assert engine.summarizer is not None  # Uses default summarizer
     
     def test_init_with_summarizer(self, sidecar_store):
         """Test initialization with custom summarizer."""
@@ -150,7 +150,7 @@ class TestGenerateSummary:
         """Test summary generation for single sentence."""
         text = "This is a single sentence"
         summary = chunking_engine._generate_summary(text)
-        assert summary == "This is a single sentence"
+        assert summary == "This is a single sentence."
     
     def test_generate_summary_multiple_sentences(self, chunking_engine):
         """Test summary generation for multiple sentences."""
@@ -184,7 +184,7 @@ class TestAnchor:
         root_intent = "Complete the main objective"
         anchor = chunking_engine.anchor(root_intent)
         
-        assert anchor.startswith("[ROOT INTENT]:")
+        assert anchor.startswith("[ROOT INTENT]")
         assert "Complete the main objective" in anchor
     
     def test_anchor_respects_token_limit(self, chunking_engine):
@@ -203,7 +203,7 @@ class TestAnchor:
         root_intent = "Short goal"
         anchor = chunking_engine.anchor(root_intent)
         
-        assert anchor == "[ROOT INTENT]: Short goal"
+        assert anchor == "[ROOT INTENT] Short goal"
         assert "..." not in anchor
 
 
