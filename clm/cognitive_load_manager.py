@@ -21,6 +21,12 @@ class CognitiveLoadManager:
     Monitors cognitive load in real-time, detects overload conditions,
     and intervenes through task compression, goal anchoring, and clarification.
     
+    Action types:
+        action == "pass"       → Green zone, continue normally
+        action == "patch"      → Amber zone, use response.context for task plan
+        action == "interrupt"  → Red zone, surface response.clarification to user
+        action == "abort"      → Task is structurally unresolvable, break it down
+    
     Usage:
         config = CLMConfig()
         clm = CognitiveLoadManager(config)
@@ -36,6 +42,9 @@ class CognitiveLoadManager:
             pass
         elif response.action == "interrupt":
             # Request clarification: response.clarification
+            pass
+        elif response.action == "abort":
+            # Task is too complex, break it down
             pass
     """
     
@@ -128,6 +137,8 @@ class CognitiveLoadManager:
         # State tracking
         self._current_score: float = 0.0
         self._current_zone: str = "Green"
+        self._consecutive_amber = 0
+        self._consecutive_red = 0
         
         logger.info("Cognitive Load Manager initialized successfully")
     
@@ -147,7 +158,11 @@ class CognitiveLoadManager:
             task_state: Current task tree and root intent
             
         Returns:
-            InterventionResponse with action, context, and clarification fields
+            InterventionResponse with action field:
+            - "pass": Green zone, continue normally
+            - "patch": Amber zone, use response.context for task plan
+            - "interrupt": Red zone, surface response.clarification to user
+            - "abort": Task is structurally unresolvable, break it down
             
         Note:
             If component failures occur, CLM will attempt graceful degradation
@@ -172,6 +187,47 @@ class CognitiveLoadManager:
             
             # Step 3: Classify zone
             zone = self.scorer.classify_zone(clm_score)
+            
+            # Amber escalation: 3 consecutive Amber triggers → force Red
+            if zone == "Amber":
+                self._consecutive_amber += 1
+                if self._consecutive_amber >= 3:
+                    logger.warning(
+                        f"[CLM] Amber escalation: {self._consecutive_amber} consecutive "
+                        f"Amber triggers — forcing Red zone intervention."
+                    )
+                    zone = "Red"
+            else:
+                self._consecutive_amber = 0
+            
+            # Red zone budget: 5 consecutive Red triggers → abort
+            if zone == "Red":
+                self._consecutive_red += 1
+                if self._consecutive_red >= 5:
+                    logger.critical(
+                        "[CLM] Red budget exhausted — task is structurally uncompletable "
+                        "at current complexity. Emitting abort."
+                    )
+                    self._consecutive_red = 0
+                    abort_response = InterventionResponse(
+                        action="abort",
+                        clarification=(
+                            "This task has exceeded the cognitive load threshold 5 times in a row. "
+                            "It is too complex to complete as scoped. "
+                            "Please break it into smaller, independent sub-tasks and start fresh."
+                        ),
+                        clm_score=clm_score,
+                        zone="Red"
+                    )
+                    if self.verbose:
+                        print(
+                            "[CLM] ✗ ABORT — Task is structurally too complex. "
+                            "Break it into smaller pieces.",
+                            flush=True
+                        )
+                    return abort_response
+            else:
+                self._consecutive_red = 0
             
             # Step 4: Dispatch intervention
             try:
@@ -335,6 +391,8 @@ class CognitiveLoadManager:
         self._step = 0
         self._current_score = 0.0
         self._current_zone = "Green"
+        self._consecutive_amber = 0
+        self._consecutive_red = 0
     
     def close(self) -> None:
         """

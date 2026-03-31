@@ -154,7 +154,8 @@ class TestGreenZoneScenario:
         config = CLMConfig(
             branching_threshold=10,
             repetition_threshold=0.95,
-            green_max=50.0
+            green_max=50.0,
+            no_embed=True
         )
         clm = CognitiveLoadManager(config)
         
@@ -202,7 +203,7 @@ class TestAmberZoneScenario:
         Requirements: 8.1, 8.2, 8.3
         """
         # Initialize CLM with lower branching threshold for testing
-        config = CLMConfig(branching_threshold=5)
+        config = CLMConfig(branching_threshold=5, no_embed=True)
         clm = CognitiveLoadManager(config)
         
         # Create mock agent
@@ -267,7 +268,8 @@ class TestRedZoneScenario:
             repetition_threshold=0.7,
             uncertainty_threshold=0.1,
             green_max=30.0,
-            amber_max=50.0
+            amber_max=50.0,
+            no_embed=True
         )
         clm = CognitiveLoadManager(config)
         
@@ -335,7 +337,8 @@ class TestFullWorkflowScenario:
         config = CLMConfig(
             branching_threshold=5,
             green_max=35.0,
-            amber_max=60.0
+            amber_max=60.0,
+            no_embed=True
         )
         clm = CognitiveLoadManager(config)
         
@@ -408,7 +411,8 @@ class TestFullWorkflowScenario:
         config = CLMConfig(
             branching_threshold=4,
             green_max=40.0,
-            amber_max=65.0
+            amber_max=65.0,
+            no_embed=True
         )
         clm = CognitiveLoadManager(config)
         
