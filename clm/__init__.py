@@ -7,3 +7,16 @@ compression, goal anchoring, and clarification requests.
 """
 
 __version__ = "1.0.0"
+
+from clm.cognitive_load_manager import CognitiveLoadManager
+from clm.core.config import CLMConfig
+from clm.core.models import TaskState, TaskTree, TaskNode, InterventionResponse
+
+__all__ = [
+    "CognitiveLoadManager",
+    "CLMConfig",
+    "TaskState",
+    "TaskTree",
+    "TaskNode",
+    "InterventionResponse",
+]
