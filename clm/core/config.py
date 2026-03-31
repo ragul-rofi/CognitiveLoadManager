@@ -31,6 +31,10 @@ class CLMConfig:
     # Embedding model
     embedding_model: str = "all-MiniLM-L6-v2"
     
+    # No embed mode for restricted environments
+    no_embed: bool = False  # If True, skip sentence-transformers entirely
+                            # repetition + goal_distance fall back to keyword overlap
+    
     # Hedged tokens
     hedged_tokens: list[str] = field(default_factory=lambda: [
         "maybe", "perhaps", "possibly", "might", "could",

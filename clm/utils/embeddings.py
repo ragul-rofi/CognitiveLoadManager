@@ -23,8 +23,14 @@ def _get_model() -> SentenceTransformer:
     global _model
     if _model is None:
         try:
+            print(
+                "[CLM] First run — downloading embedding model (all-MiniLM-L6-v2, ~90MB). "
+                "This happens once and is cached automatically.",
+                flush=True
+            )
             logger.info(f"Loading embedding model: {_model_name}")
             _model = SentenceTransformer(_model_name)
+            print("[CLM] Embedding model ready.", flush=True)
             logger.info("Embedding model loaded successfully")
         except Exception as e:
             error_msg = f"Failed to load embedding model {_model_name}: {e}"

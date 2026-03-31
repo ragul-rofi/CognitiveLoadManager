@@ -22,7 +22,8 @@ class SignalCollector:
     def __init__(self, branching_threshold: int = 7, 
                  repetition_threshold: float = 0.85,
                  uncertainty_threshold: float = 0.15,
-                 hedged_tokens: list[str] | None = None):
+                 hedged_tokens: list[str] | None = None,
+                 no_embed: bool = False):
         """
         Initialize SignalCollector with thresholds and hedged token list.
         
@@ -31,10 +32,12 @@ class SignalCollector:
             repetition_threshold: Threshold for repetition detection (default 0.85)
             uncertainty_threshold: Threshold for uncertainty density (default 0.15)
             hedged_tokens: List of hedged tokens to detect uncertainty
+            no_embed: If True, skip embeddings and use keyword-based fallback
         """
         self.branching_threshold = branching_threshold
         self.repetition_threshold = repetition_threshold
         self.uncertainty_threshold = uncertainty_threshold
+        self.no_embed = no_embed
         
         # Default hedged tokens if not provided
         self.hedged_tokens = hedged_tokens or [
@@ -122,6 +125,17 @@ class SignalCollector:
             # Take last 3 steps
             recent_steps = reasoning_history[-3:]
             
+            if self.no_embed:
+                # Fallback: keyword Jaccard similarity
+                similarities = []
+                for i in range(len(recent_steps) - 1):
+                    sim = self._jaccard_similarity(recent_steps[i], recent_steps[i + 1])
+                    similarities.append(sim)
+                
+                if similarities:
+                    return max(similarities)
+                return 0.0
+            
             # Generate embeddings for each step
             embeddings = [embed(step) for step in recent_steps]
             
@@ -197,6 +211,15 @@ class SignalCollector:
                 logger.warning(f"Current task {task_state.current_task_id} not found in tree")
                 return 0.0
             
+            if self.no_embed:
+                # Fallback: keyword Jaccard similarity
+                goal_similarity = self._jaccard_similarity(
+                    current_task.description,
+                    task_state.task_tree.root_intent
+                )
+                goal_distance = 1.0 - goal_similarity
+                return max(0.0, min(1.0, goal_distance))
+            
             # Get or compute root intent embedding
             if task_state.task_tree.root_intent_embedding is None:
                 task_state.task_tree.root_intent_embedding = embed(
@@ -222,3 +245,20 @@ class SignalCollector:
         except Exception as e:
             logger.warning(f"Failed to compute goal distance, using default 0.0: {e}")
             return 0.0  # Graceful degradation
+    
+    def _jaccard_similarity(self, a: str, b: str) -> float:
+        """
+        Compute Jaccard similarity between two texts using keyword overlap.
+        
+        Args:
+            a: First text
+            b: Second text
+            
+        Returns:
+            Jaccard similarity in [0, 1]
+        """
+        set_a = set(a.lower().split())
+        set_b = set(b.lower().split())
+        if not set_a or not set_b:
+            return 0.0
+        return len(set_a & set_b) / len(set_a | set_b)

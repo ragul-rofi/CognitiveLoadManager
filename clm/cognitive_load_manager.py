@@ -1,6 +1,7 @@
 """Cognitive Load Manager facade - main entry point for agent loop integration."""
 
 import logging
+from datetime import datetime
 from clm.core.config import CLMConfig
 from clm.core.models import TaskState, InterventionResponse
 from clm.core.signal_collector import SignalCollector
@@ -38,17 +39,25 @@ class CognitiveLoadManager:
             pass
     """
     
-    def __init__(self, config: CLMConfig):
+    def __init__(self, config: CLMConfig = None, verbose: bool = False):
         """
         Initialize CLM with configuration.
         
         Args:
-            config: Configuration object with thresholds, weights, storage settings
+            config: Configuration object with thresholds, weights, storage settings.
+                   If None, uses default configuration.
+            verbose: If True, prints CLM observations to stdout
             
         Raises:
             ConfigurationError: If configuration validation fails
             StorageError: If storage initialization fails
         """
+        if config is None:
+            config = CLMConfig()
+        self.verbose = verbose
+        self._history: list[dict] = []
+        self._step = 0
+        
         logger.info("Initializing Cognitive Load Manager")
         
         # Validate configuration
@@ -76,7 +85,8 @@ class CognitiveLoadManager:
                 branching_threshold=config.branching_threshold,
                 repetition_threshold=config.repetition_threshold,
                 uncertainty_threshold=config.uncertainty_threshold,
-                hedged_tokens=config.hedged_tokens
+                hedged_tokens=config.hedged_tokens,
+                no_embed=config.no_embed
             )
             logger.debug("Signal collector initialized")
         except Exception as e:
@@ -175,6 +185,36 @@ class CognitiveLoadManager:
                     zone=zone
                 )
             
+            # Step 4.5: Record history entry
+            self._step += 1
+            entry = {
+                "step": self._step,
+                "score": round(clm_score, 2),
+                "zone": zone,
+                "action": response.action,
+                "compressed_tasks": response.compressed_tasks,
+                "signals": {
+                    "branching": round(signals.branching_factor, 3),
+                    "repetition": round(signals.repetition_rate, 3),
+                    "uncertainty": round(signals.uncertainty_density, 3),
+                    "goal_distance": round(signals.goal_distance, 3),
+                },
+                "timestamp": datetime.now().isoformat(),
+            }
+            self._history.append(entry)
+            
+            if self.verbose:
+                zone_icon = {"Green": "✓", "Amber": "⚠", "Red": "✗"}.get(zone, "?")
+                print(
+                    f"[CLM] step={self._step:03d} | {zone_icon} {zone:6s} | "
+                    f"score={clm_score:5.1f} | action={response.action:9s} | "
+                    f"branch={signals.branching_factor:.2f} "
+                    f"repeat={signals.repetition_rate:.2f} "
+                    f"uncert={signals.uncertainty_density:.2f} "
+                    f"drift={signals.goal_distance:.2f}",
+                    flush=True
+                )
+            
             # Step 5: Auto-expand if score drops below 40
             if clm_score < 40:
                 try:
@@ -232,6 +272,69 @@ class CognitiveLoadManager:
             - db_path: Path to database file
         """
         return self.sidecar_store.get_stats()
+    
+    def get_history(self) -> list[dict]:
+        """Return full step-by-step intervention log."""
+        return self._history
+    
+    def summary(self) -> dict:
+        """Return a human-readable performance summary."""
+        if not self._history:
+            return {"steps": 0, "message": "No observations yet."}
+        
+        actions = [e["action"] for e in self._history]
+        zones = [e["zone"] for e in self._history]
+        scores = [e["score"] for e in self._history]
+        
+        return {
+            "steps": len(self._history),
+            "avg_score": round(sum(scores) / len(scores), 2),
+            "peak_score": round(max(scores), 2),
+            "interventions": {
+                "pass": actions.count("pass"),
+                "patch": actions.count("patch"),
+                "interrupt": actions.count("interrupt"),
+            },
+            "zone_distribution": {
+                "Green": zones.count("Green"),
+                "Amber": zones.count("Amber"),
+                "Red": zones.count("Red"),
+            },
+            "total_compressed": sum(len(e["compressed_tasks"]) for e in self._history),
+            "sidecar": self.get_sidecar_stats(),
+        }
+    
+    def observe_raw(self, llm_output: str) -> InterventionResponse:
+        """
+        Minimal observe() — no TaskState required.
+        
+        Automatically builds and maintains an internal task tree from outputs.
+        Perfect for simple agent loops where you just want CLM to work.
+        
+        Usage:
+            clm = CLM(verbose=True)
+            for step in range(max_steps):
+                output = call_llm(prompt)
+                result = clm.observe_raw(output)
+                if result.action == "interrupt":
+                    break
+        """
+        if not hasattr(self, '_auto_builder'):
+            from clm.utils.auto_state import AutoStateBuilder
+            self._auto_builder = AutoStateBuilder()
+        
+        self._auto_builder.observe(llm_output)
+        task_state = self._auto_builder.get_state()
+        return self.observe(llm_output, task_state)
+    
+    def reset_session(self) -> None:
+        """Reset the internal auto-state builder for a new agent session."""
+        if hasattr(self, '_auto_builder'):
+            self._auto_builder.reset()
+        self._history = []
+        self._step = 0
+        self._current_score = 0.0
+        self._current_zone = "Green"
     
     def close(self) -> None:
         """

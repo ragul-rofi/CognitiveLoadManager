@@ -1,5 +1,6 @@
 """Chunking engine for task compression, anchoring, and expansion."""
 
+import re
 import logging
 from datetime import datetime
 from typing import Optional, Callable
@@ -100,37 +101,51 @@ class ChunkingEngine:
     
     def _default_summarizer(self, text: str, max_tokens: int) -> str:
         """
-        Default extractive summarization strategy.
-        
+        Improved extractive summarizer.
         Strategy:
-        1. Extract first and last sentences (often contain key info)
-        2. Truncate to max_tokens if needed
-        
-        Args:
-            text: Text to summarize
-            max_tokens: Maximum tokens in summary
-            
-        Returns:
-            Summary string
+        1. Extract all sentences
+        2. Score each by: position (first/last weighted higher) +
+           information density (unique word ratio)
+        3. Take top-N sentences up to max_tokens
+        4. Preserve original order
         """
-        # Split into sentences
-        sentences = [s.strip() for s in text.split('.') if s.strip()]
+        sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', text) if len(s.strip()) > 10]
         
         if not sentences:
-            return text[:max_tokens * 5]  # Rough estimate: 5 chars per token
+            words = text.split()
+            return ' '.join(words[:max_tokens]) + ('...' if len(words) > max_tokens else '')
         
-        # Take first sentence and last sentence
-        if len(sentences) <= 2:
-            summary = '. '.join(sentences) + '.'
-        else:
-            summary = f"{sentences[0]}. ... {sentences[-1]}."
+        if len(sentences) <= 3:
+            summary = ' '.join(sentences)
+            words = summary.split()
+            return ' '.join(words[:max_tokens]) + ('...' if len(words) > max_tokens else '')
         
-        # Truncate to max_tokens (rough estimate: 5 chars per token)
-        tokens = summary.split()
-        if len(tokens) > max_tokens:
-            summary = ' '.join(tokens[:max_tokens]) + "..."
+        # Score sentences
+        def score(i, sent):
+            words = sent.lower().split()
+            if not words:
+                return 0
+            unique_ratio = len(set(words)) / len(words)  # info density
+            position_bonus = 1.5 if i == 0 else (1.3 if i == len(sentences)-1 else 1.0)
+            length_bonus = min(len(words) / 20, 1.0)  # reward substance
+            return unique_ratio * position_bonus * length_bonus
         
-        return summary
+        scored = sorted(enumerate(sentences), key=lambda x: score(x[0], x[1]), reverse=True)
+        
+        # Take top sentences up to max_tokens
+        selected_indices = set()
+        token_count = 0
+        for i, sent in scored:
+            sent_tokens = len(sent.split())
+            if token_count + sent_tokens <= max_tokens:
+                selected_indices.add(i)
+                token_count += sent_tokens
+            if token_count >= max_tokens * 0.85:
+                break
+        
+        # Restore original order
+        summary_sentences = [sentences[i] for i in sorted(selected_indices)]
+        return ' '.join(summary_sentences)
     
     def anchor(self, root_intent: str, max_tokens: int = 100) -> str:
         """
