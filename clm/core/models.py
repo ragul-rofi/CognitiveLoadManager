@@ -139,9 +139,11 @@ class TaskChunk:
 class InterventionResponse:
     """Response from CLM.observe() to agent loop."""
     
-    action: str  # "pass", "patch", "interrupt"
+    action: str  # "pass", "patch", "interrupt", "abort"
     context: str | None = None  # Patched context for "patch" action
     clarification: str | None = None  # Clarification request for "interrupt" action
     clm_score: float = 0.0
     zone: str = "Green"
     compressed_tasks: list[str] = field(default_factory=list)  # IDs of compressed tasks
+    amber_counter: int = 0  # Consecutive Amber zone count
+    red_counter: int = 0  # Consecutive Red zone count
