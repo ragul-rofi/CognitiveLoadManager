@@ -2,6 +2,7 @@
 
 import pytest
 from clm import CognitiveLoadManager, CLMConfig, TaskState, TaskTree, TaskNode
+from clm.exceptions import ConfigurationError
 
 
 class TestCognitiveLoadManager:
@@ -131,10 +132,10 @@ class TestCognitiveLoadManager:
         # Connection should be closed after context exit
     
     def test_invalid_config_raises_error(self):
-        """Test invalid config raises ValueError."""
+        """Test invalid config raises ConfigurationError."""
         config = CLMConfig(weights=[0.5, 0.5, 0.5, 0.5])  # Sum > 1.0
         
-        with pytest.raises(ValueError, match="Weights must sum to 1.0"):
+        with pytest.raises(ConfigurationError, match="Weights must sum to 1.0"):
             CognitiveLoadManager(config)
     
     def test_observe_workflow_completeness(self):
