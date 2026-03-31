@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "clm-agent"
+name = "clm-plugin"
 version = "0.1.0"
 description = "Cognitive Load Manager — real-time metacognitive middleware for LLM agents"
 readme = "README.md"
