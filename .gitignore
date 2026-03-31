@@ -1,0 +1,43 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+*.egg
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+.env
+
+# Testing & coverage
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+.hypothesis/
+
+# IDE & editor
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Kiro AI tool specs (internal only)
+.kiro/
+
+# CLM runtime artifacts
+clm_sidecar.db
+clm.db
+*.db
+
+# Logs
+*.log
