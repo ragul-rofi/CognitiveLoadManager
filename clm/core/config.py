@@ -7,6 +7,13 @@ from clm.exceptions import ConfigurationError
 
 logger = logging.getLogger("clm.config")
 
+# Check if sentence-transformers is available
+try:
+    import sentence_transformers
+    _SENTENCE_TRANSFORMERS_AVAILABLE = True
+except ImportError:
+    _SENTENCE_TRANSFORMERS_AVAILABLE = False
+
 
 @dataclass
 class CLMConfig:
@@ -40,6 +47,12 @@ class CLMConfig:
         "maybe", "perhaps", "possibly", "might", "could",
         "uncertain", "unclear", "probably", "likely", "seems"
     ])
+    
+    def __post_init__(self):
+        """Auto-detect and configure no_embed mode if sentence-transformers is not available."""
+        if not _SENTENCE_TRANSFORMERS_AVAILABLE and not self.no_embed:
+            self.no_embed = True
+            print("[CLM] sentence-transformers not found — using keyword-based signals. Install with: pip install clm-plugin[embed]")
     
     def validate(self) -> None:
         """

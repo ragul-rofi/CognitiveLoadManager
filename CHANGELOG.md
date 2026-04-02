@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.1] — 2025-04-02
+
+### Changed
+
+**Dependency optimization**
+- Made `sentence-transformers` optional — base install now only requires `numpy` (~10MB vs ~1.5GB)
+- Added `pip install clm-plugin[embed]` for full embedding support
+- Auto-detect missing `sentence-transformers` and enable `no_embed=True` with helpful message
+
+**PyPI metadata improvements**
+- Added authors and maintainers fields
+- Added Repository and Changelog URLs
+- Created PyPI-specific README (README_PYPI.md) — short, install-focused, under 100 lines
+- Full README.md remains on GitHub
+
+**Documentation**
+- Added note about sidecar database (*.db) exclusion from version control
+- Clarified that `*.db` files should not be committed
+
+### Fixed
+- Prevented crashes for users who install lean version without reading docs
+
 ## [0.1.0] — 2025-03-31
 
 ### First public release

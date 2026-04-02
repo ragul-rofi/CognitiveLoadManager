@@ -165,6 +165,8 @@ config = CLMConfig(
 )
 ```
 
+**Note:** The sidecar database (default: `clm_sidecar.db`) stores compressed task state and should not be committed to version control. It's already excluded in the default `.gitignore` pattern (`*.db`).
+
 ### Tuning Weights for Your Domain
 
 ⚠️ **Default weights are informed heuristics, not empirically validated. Tune them for your domain using `CLMConfig(weights=[...])`.**

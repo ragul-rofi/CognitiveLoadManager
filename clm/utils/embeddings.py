@@ -3,7 +3,6 @@
 import logging
 import numpy as np
 from functools import lru_cache
-from sentence_transformers import SentenceTransformer
 from clm.exceptions import EmbeddingError
 
 logger = logging.getLogger("clm.embeddings")
@@ -13,7 +12,7 @@ _model = None
 _model_name = "all-MiniLM-L6-v2"
 
 
-def _get_model() -> SentenceTransformer:
+def _get_model():
     """
     Get or initialize the sentence transformer model.
     
@@ -23,6 +22,9 @@ def _get_model() -> SentenceTransformer:
     global _model
     if _model is None:
         try:
+            # Lazy import to avoid crashes when sentence-transformers not installed
+            from sentence_transformers import SentenceTransformer
+            
             print(
                 "[CLM] First run — downloading embedding model (all-MiniLM-L6-v2, ~90MB). "
                 "This happens once and is cached automatically.",
@@ -32,6 +34,10 @@ def _get_model() -> SentenceTransformer:
             _model = SentenceTransformer(_model_name)
             print("[CLM] Embedding model ready.", flush=True)
             logger.info("Embedding model loaded successfully")
+        except ImportError as e:
+            error_msg = "sentence-transformers not installed. Install with: pip install clm-plugin[embed]"
+            logger.error(error_msg)
+            raise EmbeddingError(error_msg) from e
         except Exception as e:
             error_msg = f"Failed to load embedding model {_model_name}: {e}"
             logger.error(error_msg)

@@ -4,11 +4,17 @@ build-backend = "hatchling.build"
 
 [project]
 name = "clm-plugin"
-version = "0.1.0"
+version = "0.1.1"
 description = "Cognitive Load Manager — real-time metacognitive middleware for LLM agents"
-readme = "README.md"
+readme = { file = "README_PYPI.md", content-type = "text/markdown" }
 requires-python = ">=3.10"
 license = { text = "MIT" }
+authors = [
+    { name = "Ragul Arumugam", email = "ragul.apoffl@gmail.com" }
+]
+maintainers = [
+    { name = "Ragul Arumugam", email = "ragul.apoffl@gmail.com" }
+]
 keywords = ["agent", "llm", "cognitive", "memory", "langchain", "openai", "metacognition", "ai", "middleware"]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -19,18 +25,20 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
 ]
 dependencies = [
-    "sentence-transformers>=2.2.0",
     "numpy>=1.24.0",
 ]
 
 [project.optional-dependencies]
+embed = ["sentence-transformers>=2.2.0"]
 dev = ["pytest>=7.4.0", "hypothesis>=6.90.0", "pytest-cov"]
 langchain = ["langchain>=0.1.0"]
 
 [project.urls]
 Homepage = "https://github.com/ragul-rofi/CognitiveLoadManager"
 Documentation = "https://github.com/ragul-rofi/CognitiveLoadManager#readme"
+Repository = "https://github.com/ragul-rofi/CognitiveLoadManager"
 Issues = "https://github.com/ragul-rofi/CognitiveLoadManager/issues"
+Changelog = "https://github.com/ragul-rofi/CognitiveLoadManager/blob/main/CHANGELOG.md"
 
 [tool.hatch.build.targets.wheel]
 packages = ["clm"]
