@@ -6,7 +6,7 @@ cognitive load, detects overload conditions, and intervenes through task
 compression, goal anchoring, and clarification requests.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.1.3"
 
 from clm.cognitive_load_manager import CognitiveLoadManager
 from clm.core.config import CLMConfig

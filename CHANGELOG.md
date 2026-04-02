@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.3] — 2025-04-02
+
+### Fixed
+- README now displays correctly on PyPI dashboard (re-release of 0.1.2)
+
 ## [0.1.2] — 2025-04-02
 
 ### Fixed
