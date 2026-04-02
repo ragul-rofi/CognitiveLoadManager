@@ -274,4 +274,4 @@ Sidecar Store      — SQLite persistence for compressed tasks
 
 ## License
 
-MIT
+[MIT](LICENSE.md)
